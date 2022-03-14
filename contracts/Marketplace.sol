@@ -2,18 +2,18 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/access/AccessControl.sol";
 
 import "./ERC721Token.sol";
 
-contract Marketplace {
+contract Marketplace is AccessControl {
     // Как проверять енум, если я буду делать проверку на статус
     enum ItemStatus {
         PAID,
         NOT_PAID
     }
 
-    // Как называется товар на маркет плейсе?
-    struct MarketplaceItem {
+    struct SellOrderItem {
         address seller;
         uint256 price;
         ItemStatus status;
@@ -22,9 +22,20 @@ contract Marketplace {
     address public ERC721_TOKEN;
     using Counters for Counters.Counter;
     Counters.Counter private _ids;
-    mapping(uint256 => MarketplaceItem) public orderList;
+    mapping(uint256 => SellOrderItem) public sellOrderList;
 
-    constructor(address nftTokenAddress) {
+    event ItemListed(address indexed seller, uint256 price);
+    event ItemSold(address indexed buyer, uint256 price);
+
+    constructor() {
+        _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
+    }
+
+    function setERC721TokenAddress(address nftTokenAddress) public {
+        require(
+            hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
+            "You cannot set ERC721 address"
+        );
         ERC721_TOKEN = nftTokenAddress;
     }
 
@@ -37,6 +48,18 @@ contract Marketplace {
         /**
             выставка на продажу предмета
          */
+        ERC721Token(ERC721_TOKEN).safeTransferFrom(
+            msg.sender,
+            address(this),
+            tokenId
+        );
+        sellOrderList[tokenId] = SellOrderItem({
+            seller: msg.sender,
+            price: price,
+            status: ItemStatus.NOT_PAID
+        });
+
+        emit ItemListed(msg.sender, price);
     }
 
     function buyItem() public {
