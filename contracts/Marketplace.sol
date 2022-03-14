@@ -5,21 +5,22 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
 import "./ERC721Token.sol";
+import "./ERC20.sol";
 
 contract Marketplace is AccessControl {
-    // Как проверять енум, если я буду делать проверку на статус
-    enum ItemStatus {
-        PAID,
-        NOT_PAID
+    enum SellItemStatus {
+        OWNERED,
+        IN_SELL
     }
 
     struct SellOrderItem {
         address seller;
         uint256 price;
-        ItemStatus status;
+        SellItemStatus status;
     }
 
     address public ERC721_TOKEN;
+    address public ERC20_TOKEN;
     using Counters for Counters.Counter;
     Counters.Counter private _ids;
     mapping(uint256 => SellOrderItem) public sellOrderList;
@@ -31,12 +32,13 @@ contract Marketplace is AccessControl {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
-    function setERC721TokenAddress(address nftTokenAddress) public {
+    function setTokensAddresses(address erc721Addr, address erc20Addr) public {
         require(
             hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
             "You cannot set ERC721 address"
         );
-        ERC721_TOKEN = nftTokenAddress;
+        ERC721_TOKEN = erc721Addr;
+        ERC20_TOKEN = erc20Addr;
     }
 
     function createItem(string memory metadata, address owner) public {
@@ -45,9 +47,6 @@ contract Marketplace is AccessControl {
     }
 
     function listItem(uint256 tokenId, uint256 price) public {
-        /**
-            выставка на продажу предмета
-         */
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             msg.sender,
             address(this),
@@ -56,16 +55,32 @@ contract Marketplace is AccessControl {
         sellOrderList[tokenId] = SellOrderItem({
             seller: msg.sender,
             price: price,
-            status: ItemStatus.NOT_PAID
+            status: SellItemStatus.IN_SELL
         });
 
         emit ItemListed(msg.sender, price);
     }
 
-    function buyItem() public {
-        /**
-            покупка предмета.
-         */
+    function buyItem(uint256 tokenId) public {
+        require(
+            sellOrderList[tokenId].status == SellItemStatus.IN_SELL,
+            "Cannot buy non sold token"
+        );
+        ERC721Token(ERC721_TOKEN).safeTransferFrom(
+            address(this),
+            msg.sender,
+            tokenId
+        );
+        ERC20(ERC20_TOKEN).transferFrom(
+            msg.sender,
+            sellOrderList[tokenId].seller,
+            sellOrderList[tokenId].price
+        );
+
+        sellOrderList[tokenId].seller = msg.sender;
+        sellOrderList[tokenId].status = SellItemStatus.OWNERED;
+
+        emit ItemSold(msg.sender, sellOrderList[tokenId].price);
     }
 
     function cancel() public {
@@ -107,5 +122,17 @@ contract Marketplace is AccessControl {
         /**
             отменить аукцион
          */
+    }
+
+    function onERC721Received(
+        address,
+        address,
+        uint256,
+        bytes calldata
+    ) external pure returns (bytes4) {
+        return
+            bytes4(
+                keccak256("onERC721Received(address,address,uint256,bytes)")
+            );
     }
 }
