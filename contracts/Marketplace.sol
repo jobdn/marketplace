@@ -13,10 +13,24 @@ contract Marketplace is AccessControl {
         IN_SELL
     }
 
+    enum AuctionStatus {
+        S,
+        FINISHED
+    }
+
     struct SellOrderItem {
         address seller;
         uint256 price;
         SellItemStatus status;
+    }
+
+    struct AuctionItem {
+        uint256 bidderCounter;
+        address auctionCreator;
+        uint256 higherBid;
+        address higherBidder;
+        uint256 startTimestamp;
+        AuctionStatus status;
     }
 
     address public ERC721_TOKEN;
@@ -24,10 +38,16 @@ contract Marketplace is AccessControl {
     using Counters for Counters.Counter;
     Counters.Counter private _ids;
     mapping(uint256 => SellOrderItem) public sellOrderList;
+    mapping(uint256 => AuctionItem) public auctionOrderList;
 
     event ItemListed(address indexed seller, uint256 price);
     event ItemSold(address indexed buyer, uint256 price);
     event SaleCanceled(address indexed closer, uint256 tokenId);
+    event AuctionStarted(
+        address indexed auctioneer,
+        uint256 tokenId,
+        uint256 minPrice
+    );
 
     constructor() {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -90,7 +110,7 @@ contract Marketplace is AccessControl {
         emit SaleCanceled(msg.sender, tokenId);
     }
 
-    function listItemOnAuction() public {
+    function listItemOnAuction(uint256 tokenId, uint256 minPrice) public {
         /**
             выставка предмета на продажу в аукционе.
 
@@ -105,6 +125,25 @@ contract Marketplace is AccessControl {
             1. Получается, что пользователи будут присылать токены? 
                 ? Можно ли ввести одну переменную, которая будет перезатираться, если биддер предложит большую цену?
          */
+        require(
+            auctionOrderList[tokenId].startTimestamp == 0,
+            "Auction with this token is alredy started"
+        );
+        ERC721Token(ERC721_TOKEN).safeTransferFrom(
+            msg.sender,
+            address(this),
+            tokenId
+        );
+        auctionOrderList[tokenId] = AuctionItem({
+            bidderCounter: 0,
+            auctionCreator: msg.sender,
+            higherBid: minPrice,
+            higherBidder: address(0),
+            startTimestamp: block.timestamp,
+            status: AuctionStatus.S
+        });
+
+        emit AuctionStarted(msg.sender, tokenId, minPrice);
     }
 
     function makeBid() public {
