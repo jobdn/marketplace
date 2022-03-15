@@ -27,6 +27,7 @@ contract Marketplace is AccessControl {
 
     event ItemListed(address indexed seller, uint256 price);
     event ItemSold(address indexed buyer, uint256 price);
+    event SaleCanceled(address indexed closer, uint256 tokenId);
 
     constructor() {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -64,7 +65,7 @@ contract Marketplace is AccessControl {
     function buyItem(uint256 tokenId) public {
         require(
             sellOrderList[tokenId].status == SellItemStatus.IN_SELL,
-            "Cannot buy non sold token"
+            "Cannot buy non sold item"
         );
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             address(this),
@@ -86,6 +87,7 @@ contract Marketplace is AccessControl {
     function cancel(uint256 tokenId) public {
         require(sellOrderList[tokenId].seller == msg.sender, "Not seller");
         sellOrderList[tokenId].status = SellItemStatus.OWNERED;
+        emit SaleCanceled(msg.sender, tokenId);
     }
 
     function listItemOnAuction() public {
