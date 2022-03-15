@@ -35,7 +35,7 @@ contract Marketplace is AccessControl {
     function setTokensAddresses(address erc721Addr, address erc20Addr) public {
         require(
             hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
-            "You cannot set ERC721 address"
+            "You cannot set address of tokens"
         );
         ERC721_TOKEN = erc721Addr;
         ERC20_TOKEN = erc20Addr;
@@ -83,10 +83,9 @@ contract Marketplace is AccessControl {
         emit ItemSold(msg.sender, sellOrderList[tokenId].price);
     }
 
-    function cancel() public {
-        /**
-            отмена продажи выставленного предмета
-         */
+    function cancel(uint256 tokenId) public {
+        require(sellOrderList[tokenId].seller == msg.sender, "Not seller");
+        sellOrderList[tokenId].status = SellItemStatus.OWNERED;
     }
 
     function listItemOnAuction() public {
