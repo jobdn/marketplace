@@ -18,6 +18,7 @@ describe("Marketplace", function () {
   const FIRST_TOKEN_ID = 1;
   const FIRST_ORDER_PRICE = 10;
   const OWNERED_STATUS = 0;
+  const MIN_PRICE_OF_FIRST_TOKEN = 100;
 
   beforeEach(async () => {
     [owner, acc1] = await ethers.getSigners();
@@ -132,6 +133,30 @@ describe("Marketplace", function () {
       await expect(
         marketplace.connect(acc1).cancel(FIRST_TOKEN_ID)
       ).to.be.revertedWith("Not seller");
+    });
+  });
+
+  describe("Auction", () => {
+    it("Should list item on auction", async () => {
+      await createItem(owner.address, FIRST_TOKEN_ID);
+      await erc721Token.approve(marketplace.address, FIRST_TOKEN_ID);
+      await marketplace.listItemOnAuction(
+        FIRST_TOKEN_ID,
+        MIN_PRICE_OF_FIRST_TOKEN
+      );
+    });
+
+    it("Should fail if call listItemOnAuction second time", async () => {
+      await createItem(owner.address, FIRST_TOKEN_ID);
+      await erc721Token.approve(marketplace.address, FIRST_TOKEN_ID);
+      await marketplace.listItemOnAuction(
+        FIRST_TOKEN_ID,
+        MIN_PRICE_OF_FIRST_TOKEN
+      );
+
+      await expect(
+        marketplace.listItemOnAuction(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_TOKEN)
+      ).to.be.revertedWith("Auction with this token is alredy started");
     });
   });
 });
