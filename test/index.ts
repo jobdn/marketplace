@@ -1,6 +1,6 @@
 import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { expect } from "chai";
-import { ethers } from "hardhat";
+import { ethers, network } from "hardhat";
 import {
   ERC20,
   ERC20__factory,
@@ -14,14 +14,17 @@ describe("Marketplace", function () {
   let erc721Token: ERC721Token;
   let erc20Token: ERC20;
   let marketplace: Marketplace;
-  let owner: SignerWithAddress, acc1: SignerWithAddress;
+  let owner: SignerWithAddress,
+    acc1: SignerWithAddress,
+    acc2: SignerWithAddress,
+    acc3: SignerWithAddress;
   const FIRST_TOKEN_ID = 1;
   const FIRST_ORDER_PRICE = 10;
   const OWNERED_STATUS = 0;
-  const MIN_PRICE_OF_FIRST_TOKEN = 100;
+  const MIN_PRICE_OF_FIRST_AUCTION = 100;
 
   beforeEach(async () => {
-    [owner, acc1] = await ethers.getSigners();
+    [owner, acc1, acc2, acc3] = await ethers.getSigners();
     const marketplaceFactory: Marketplace__factory =
       await ethers.getContractFactory("Marketplace");
     marketplace = await marketplaceFactory.deploy();
@@ -48,11 +51,11 @@ describe("Marketplace", function () {
     expect(await marketplace.ERC20_TOKEN()).to.equal(erc20Token.address);
   });
 
-  async function createItem(ownerAddress: string, tokenId: number) {
+  const createItem = async (ownerAddress: string, tokenId: number) => {
     await marketplace.createItem("https://ipfs.io/ipfs/Qm.....", ownerAddress);
     expect(await erc721Token.balanceOf(ownerAddress)).to.equal(1);
     expect(await erc721Token.ownerOf(tokenId)).to.equal(ownerAddress);
-  }
+  };
 
   describe("Create, list and buy item", () => {
     const IN_SELL_STATUS = 1;
@@ -136,27 +139,149 @@ describe("Marketplace", function () {
     });
   });
 
-  describe("Auction", () => {
+  const listItemOnAuction = async (
+    ownerAddress: string,
+    minPrice: number,
+    tokenId: number
+  ) => {
+    await createItem(ownerAddress, tokenId);
+    await erc721Token.approve(marketplace.address, tokenId);
+    await marketplace.listItemOnAuction(tokenId, minPrice);
+  };
+
+  describe("List item to auction", () => {
     it("Should list item on auction", async () => {
-      await createItem(owner.address, FIRST_TOKEN_ID);
-      await erc721Token.approve(marketplace.address, FIRST_TOKEN_ID);
-      await marketplace.listItemOnAuction(
-        FIRST_TOKEN_ID,
-        MIN_PRICE_OF_FIRST_TOKEN
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
       );
     });
 
     it("Should fail if call listItemOnAuction second time", async () => {
-      await createItem(owner.address, FIRST_TOKEN_ID);
-      await erc721Token.approve(marketplace.address, FIRST_TOKEN_ID);
-      await marketplace.listItemOnAuction(
-        FIRST_TOKEN_ID,
-        MIN_PRICE_OF_FIRST_TOKEN
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
       );
 
       await expect(
-        marketplace.listItemOnAuction(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_TOKEN)
+        marketplace.listItemOnAuction(
+          FIRST_TOKEN_ID,
+          MIN_PRICE_OF_FIRST_AUCTION
+        )
       ).to.be.revertedWith("Auction with this token is alredy started");
+    });
+  });
+
+  describe("Make bid", () => {
+    it("Should make bid", async () => {
+      expect(await erc20Token.balanceOf(marketplace.address)).to.equal(0);
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+      await erc20Token.mint(acc1.address, 1000);
+      await erc20Token.connect(acc1).approve(marketplace.address, 1000);
+      await marketplace
+        .connect(acc1)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1);
+
+      // Check that erc20 tokens are sended to marketplace
+      expect(await erc20Token.balanceOf(marketplace.address)).to.equal(
+        MIN_PRICE_OF_FIRST_AUCTION + 1
+      );
+
+      await marketplace
+        .connect(acc1)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 2);
+
+      marketplace
+        .auctionOrderList(FIRST_TOKEN_ID)
+        .then((auction) => {
+          expect(auction.bidderCounter).to.equal(2);
+          expect(auction.higherBidder).to.equal(acc1.address);
+          expect(auction.higherBid).to.equal(MIN_PRICE_OF_FIRST_AUCTION + 2);
+        })
+        .catch(console.log);
+    });
+
+    it("Should fail if auction is not started or already finished", async () => {
+      await erc20Token.mint(acc1.address, 1000);
+      await erc20Token.connect(acc1).approve(marketplace.address, 1000);
+      await expect(
+        marketplace
+          .connect(acc1)
+          .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1)
+      ).to.be.revertedWith("Nonexistent auction");
+
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+
+      await network.provider.send("evm_increaseTime", [3 * 24 * 3600 + 3]);
+      await network.provider.send("evm_mine");
+
+      await expect(
+        marketplace
+          .connect(acc1)
+          .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1)
+      ).to.be.revertedWith("Nonexistent auction");
+    });
+
+    it("Should fail if sender make bid less then min price", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+      await erc20Token.mint(acc1.address, 1000);
+      await erc20Token.connect(acc1).approve(marketplace.address, 1000);
+
+      await expect(
+        marketplace
+          .connect(acc1)
+          .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION)
+      ).to.be.revertedWith("Not enough bid");
+    });
+  });
+
+  describe("Finish auction", () => {
+    it("Should resend tokens when only two accounts was in auction", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+      await erc20Token.mint(acc1.address, 1000);
+      await erc20Token.mint(acc2.address, 1000);
+      await erc20Token.mint(acc3.address, 1000);
+
+      await erc20Token.connect(acc1).approve(marketplace.address, 1000);
+      await erc20Token.connect(acc2).approve(marketplace.address, 1000);
+      await erc20Token.connect(acc3).approve(marketplace.address, 1000);
+
+      await marketplace
+        .connect(acc1)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1);
+      await marketplace
+        .connect(acc2)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 2);
+      await marketplace
+        .connect(acc3)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 3);
+
+      marketplace
+        .auctionOrderList(FIRST_TOKEN_ID)
+        .then((auction) => {
+          expect(auction.bidderCounter).to.equal(3);
+          expect(auction.higherBidder).to.equal(acc3.address);
+          expect(auction.higherBid).to.equal(MIN_PRICE_OF_FIRST_AUCTION + 3);
+        })
+        .catch(console.log);
     });
   });
 });

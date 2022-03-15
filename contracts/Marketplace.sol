@@ -14,7 +14,7 @@ contract Marketplace is AccessControl {
     }
 
     enum AuctionStatus {
-        S,
+        STARTED,
         FINISHED
     }
 
@@ -39,6 +39,7 @@ contract Marketplace is AccessControl {
     Counters.Counter private _ids;
     mapping(uint256 => SellOrderItem) public sellOrderList;
     mapping(uint256 => AuctionItem) public auctionOrderList;
+    uint256 private constant AUCTION_DURING = 3 days;
 
     event ItemListed(address indexed seller, uint256 price);
     event ItemSold(address indexed buyer, uint256 price);
@@ -48,6 +49,7 @@ contract Marketplace is AccessControl {
         uint256 tokenId,
         uint256 minPrice
     );
+    event BidMaked(address indexed bidder, uint256 tokenId, uint256 price);
 
     constructor() {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -140,16 +142,34 @@ contract Marketplace is AccessControl {
             higherBid: minPrice,
             higherBidder: address(0),
             startTimestamp: block.timestamp,
-            status: AuctionStatus.S
+            status: AuctionStatus.STARTED
         });
 
         emit AuctionStarted(msg.sender, tokenId, minPrice);
     }
 
-    function makeBid() public {
-        /**
-            сделать ставку на предмет аукциона с определенным id
-         */
+    function makeBid(uint256 tokenId, uint256 price) public {
+        require(
+            auctionOrderList[tokenId].startTimestamp != 0 &&
+                block.timestamp <=
+                auctionOrderList[tokenId].startTimestamp + AUCTION_DURING,
+            "Nonexistent auction"
+        );
+        require(price > auctionOrderList[tokenId].higherBid, "Not enough bid");
+
+        ERC20(ERC20_TOKEN).transferFrom(msg.sender, address(this), price);
+        auctionOrderList[tokenId].higherBid = price;
+        auctionOrderList[tokenId].higherBidder = msg.sender;
+
+        address preHigherBidder = auctionOrderList[tokenId].higherBidder;
+        uint256 preHigherBid = auctionOrderList[tokenId].higherBid;
+        if (auctionOrderList[tokenId].bidderCounter > 0) {
+            ERC20(ERC20_TOKEN).transfer(preHigherBidder, preHigherBid);
+        }
+
+        auctionOrderList[tokenId].bidderCounter++;
+
+        emit BidMaked(msg.sender, tokenId, price);
     }
 
     function finishAution() public {
