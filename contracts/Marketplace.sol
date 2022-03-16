@@ -4,12 +4,10 @@ pragma solidity ^0.8.0;
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
 
-import "hardhat/console.sol";
-
 import "./ERC721Token.sol";
 import "./ERC20.sol";
 
-contract Marketplace is AccessControl {
+contract Marketplace is AccessControl{
     enum SellItemStatus {
         OWNERED,
         IN_SELL
@@ -135,7 +133,7 @@ contract Marketplace is AccessControl {
     function listItemOnAuction(uint256 tokenId, uint256 minPrice) public {
         require(
             auctionOrderList[tokenId].status != AuctionStatus.STARTED,
-            "Auction is alredy started"
+            "Auction is already started"
         );
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             msg.sender,
@@ -164,11 +162,10 @@ contract Marketplace is AccessControl {
                 auctionOrderList[tokenId].startTimestamp + AUCTION_DURING,
             "Auction is over"
         );
-
         require(price > auctionOrderList[tokenId].higherBid, "Not enough bid");
+
         address preHigherBidder = auctionOrderList[tokenId].higherBidder;
         uint256 preHigherBid = auctionOrderList[tokenId].higherBid;
-
         ERC20(ERC20_TOKEN).transferFrom(msg.sender, address(this), price);
         auctionOrderList[tokenId].higherBid = price;
         auctionOrderList[tokenId].higherBidder = msg.sender;
@@ -197,10 +194,6 @@ contract Marketplace is AccessControl {
     }
 
     function finishAution(uint256 tokenId) public {
-        require(
-            auctionOrderList[tokenId].status == AuctionStatus.STARTED,
-            "Auction is not started"
-        );
         require(
             block.timestamp >=
                 auctionOrderList[tokenId].startTimestamp + AUCTION_DURING,

@@ -180,7 +180,7 @@ describe("Marketplace", function () {
           FIRST_TOKEN_ID,
           MIN_PRICE_OF_FIRST_AUCTION
         )
-      ).to.be.revertedWith("Auction is alredy started");
+      ).to.be.revertedWith("Auction is already started");
     });
   });
 
@@ -350,12 +350,6 @@ describe("Marketplace", function () {
         "Auction is not over"
       );
     });
-
-    it("Should fail if auction is not started", async () => {
-      await expect(marketplace.finishAution(FIRST_TOKEN_ID)).to.be.revertedWith(
-        "Auction is not started"
-      );
-    });
   });
 
   describe("Cancel auction", () => {
@@ -382,7 +376,7 @@ describe("Marketplace", function () {
       await marketplace.cancelAuction(FIRST_TOKEN_ID);
     });
 
-    it("Should fail if auciton is alredy finished", async () => {
+    it("Should fail if auciton is already finished", async () => {
       await listItemOnAuction(
         owner.address,
         MIN_PRICE_OF_FIRST_AUCTION,
