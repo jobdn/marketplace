@@ -50,6 +50,12 @@ contract Marketplace is AccessControl {
         uint256 minPrice
     );
     event BidMaked(address indexed bidder, uint256 tokenId, uint256 price);
+    event AuctionFinished(
+        address indexed finisher,
+        address indexed creator,
+        address indexed highBidder,
+        uint256 tokenId
+    );
 
     constructor() {
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
@@ -113,20 +119,6 @@ contract Marketplace is AccessControl {
     }
 
     function listItemOnAuction(uint256 tokenId, uint256 minPrice) public {
-        /**
-            выставка предмета на продажу в аукционе.
-
-            Аукцион длится 3 дня с момента открытия.
-            В течении трех дней аукцион не может быть отменен.
-
-            После трех дней, если набирается больше двух заявок (?почему две нельзя или можно?),
-            то аукцион успешен: токены идут к создателю аукциона, а нфт отправляет в ?последнему? биддеру.
-
-            В противном случае(? когда не набралось более двух заявок?), токены отправляются к биддеру, а нфт остается у создателя.
-
-            1. Получается, что пользователи будут присылать токены? 
-                ? Можно ли ввести одну переменную, которая будет перезатираться, если биддер предложит большую цену?
-         */
         require(
             auctionOrderList[tokenId].startTimestamp == 0,
             "Auction with this token is alredy started"
@@ -156,13 +148,13 @@ contract Marketplace is AccessControl {
             "Nonexistent auction"
         );
         require(price > auctionOrderList[tokenId].higherBid, "Not enough bid");
+        address preHigherBidder = auctionOrderList[tokenId].higherBidder;
+        uint256 preHigherBid = auctionOrderList[tokenId].higherBid;
 
         ERC20(ERC20_TOKEN).transferFrom(msg.sender, address(this), price);
         auctionOrderList[tokenId].higherBid = price;
         auctionOrderList[tokenId].higherBidder = msg.sender;
 
-        address preHigherBidder = auctionOrderList[tokenId].higherBidder;
-        uint256 preHigherBid = auctionOrderList[tokenId].higherBid;
         if (auctionOrderList[tokenId].bidderCounter > 0) {
             ERC20(ERC20_TOKEN).transfer(preHigherBidder, preHigherBid);
         }
@@ -172,10 +164,48 @@ contract Marketplace is AccessControl {
         emit BidMaked(msg.sender, tokenId, price);
     }
 
-    function finishAution() public {
-        /**
-            завершить аукцион и отраваить нфт победителю
-         */
+    function finishAution(uint256 tokenId) public {
+        require(
+            auctionOrderList[tokenId].startTimestamp != 0,
+            "Nonexistent auction"
+        );
+        require(
+            block.timestamp >=
+                auctionOrderList[tokenId].startTimestamp + AUCTION_DURING,
+            "Auction is not over"
+        );
+
+        if (auctionOrderList[tokenId].bidderCounter > 2) {
+            ERC721Token(ERC721_TOKEN).safeTransferFrom(
+                address(this),
+                auctionOrderList[tokenId].higherBidder,
+                tokenId
+            );
+            ERC20(ERC20_TOKEN).transfer(
+                auctionOrderList[tokenId].auctionCreator,
+                auctionOrderList[tokenId].higherBid
+            );
+        } else {
+            ERC721Token(ERC721_TOKEN).safeTransferFrom(
+                address(this),
+                auctionOrderList[tokenId].auctionCreator,
+                tokenId
+            );
+
+            ERC20(ERC20_TOKEN).transfer(
+                auctionOrderList[tokenId].higherBidder,
+                auctionOrderList[tokenId].higherBid
+            );
+        }
+
+        emit AuctionFinished(
+            msg.sender,
+            auctionOrderList[tokenId].auctionCreator,
+            auctionOrderList[tokenId].higherBidder,
+            tokenId
+        );
+
+        delete auctionOrderList[tokenId];
     }
 
     function cancelAuction() public {

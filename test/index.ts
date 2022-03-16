@@ -196,6 +196,9 @@ describe("Marketplace", function () {
       await marketplace
         .connect(acc1)
         .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 2);
+      expect(await erc20Token.balanceOf(marketplace.address)).to.equal(
+        MIN_PRICE_OF_FIRST_AUCTION + 2
+      );
 
       marketplace
         .auctionOrderList(FIRST_TOKEN_ID)
@@ -207,7 +210,7 @@ describe("Marketplace", function () {
         .catch(console.log);
     });
 
-    it("Should fail if auction is not started or already finished", async () => {
+    it("Should fail if auction is not started", async () => {
       await erc20Token.mint(acc1.address, 1000);
       await erc20Token.connect(acc1).approve(marketplace.address, 1000);
       await expect(
@@ -215,6 +218,11 @@ describe("Marketplace", function () {
           .connect(acc1)
           .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1)
       ).to.be.revertedWith("Nonexistent auction");
+    });
+
+    it("Should fail if auction is finished", async () => {
+      await erc20Token.mint(acc1.address, 1000);
+      await erc20Token.connect(acc1).approve(marketplace.address, 1000);
 
       await listItemOnAuction(
         owner.address,
@@ -222,7 +230,7 @@ describe("Marketplace", function () {
         FIRST_TOKEN_ID
       );
 
-      await network.provider.send("evm_increaseTime", [3 * 24 * 3600 + 3]);
+      await network.provider.send("evm_increaseTime", [3 * 24 * 3600]);
       await network.provider.send("evm_mine");
 
       await expect(
@@ -250,7 +258,7 @@ describe("Marketplace", function () {
   });
 
   describe("Finish auction", () => {
-    it("Should resend tokens when only two accounts was in auction", async () => {
+    it("Should finish auction, send nft to winner and send erc20 to creator of auction", async () => {
       await listItemOnAuction(
         owner.address,
         MIN_PRICE_OF_FIRST_AUCTION,
@@ -266,22 +274,75 @@ describe("Marketplace", function () {
 
       await marketplace
         .connect(acc1)
-        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1);
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 10);
+
       await marketplace
         .connect(acc2)
-        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 2);
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 20);
+
       await marketplace
         .connect(acc3)
-        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 3);
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 30);
 
-      marketplace
-        .auctionOrderList(FIRST_TOKEN_ID)
-        .then((auction) => {
-          expect(auction.bidderCounter).to.equal(3);
-          expect(auction.higherBidder).to.equal(acc3.address);
-          expect(auction.higherBid).to.equal(MIN_PRICE_OF_FIRST_AUCTION + 3);
-        })
-        .catch(console.log);
+      expect(await erc20Token.balanceOf(marketplace.address)).to.equal(
+        MIN_PRICE_OF_FIRST_AUCTION + 30
+      );
+
+      await network.provider.send("evm_increaseTime", [3 * 24 * 3600 + 5]);
+      await network.provider.send("evm_mine");
+
+      await marketplace.finishAution(FIRST_TOKEN_ID);
+
+      expect(await erc721Token.ownerOf(FIRST_TOKEN_ID)).to.equal(acc3.address);
+      expect(await erc20Token.balanceOf(owner.address)).to.equal(
+        MIN_PRICE_OF_FIRST_AUCTION + 30
+      );
+    });
+
+    it("If amount of bid is not more than two", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+      await erc20Token.mint(acc1.address, 1000);
+      await erc20Token.mint(acc2.address, 1000);
+      await erc20Token.connect(acc1).approve(marketplace.address, 1000);
+      await erc20Token.connect(acc2).approve(marketplace.address, 1000);
+
+      await marketplace
+        .connect(acc1)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 10);
+
+      await marketplace
+        .connect(acc2)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 20);
+
+      await network.provider.send("evm_increaseTime", [3 * 24 * 3600 + 5]);
+      await network.provider.send("evm_mine");
+
+      await marketplace.finishAution(FIRST_TOKEN_ID);
+      expect(await erc721Token.balanceOf(owner.address)).to.equal(1);
+      expect(await erc721Token.ownerOf(FIRST_TOKEN_ID)).to.equal(owner.address);
+      expect(await erc20Token.balanceOf(acc2.address)).to.equal(1000);
+    });
+
+    it("Should fail if auction is not over", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+
+      await expect(marketplace.finishAution(FIRST_TOKEN_ID)).to.be.revertedWith(
+        "Auction is not over"
+      );
+    });
+
+    it("Should fail if auction is not started", async () => {
+      await expect(marketplace.finishAution(FIRST_TOKEN_ID)).to.be.revertedWith(
+        "Nonexistent auction"
+      );
     });
   });
 });
