@@ -77,6 +77,10 @@ describe("Marketplace", function () {
           expect(order.status).to.equal(IN_SELL_STATUS);
         })
         .catch(console.error);
+
+      expect(await erc721Token.ownerOf(FIRST_TOKEN_ID)).to.equal(
+        marketplace.address
+      );
     });
 
     it("Should buy item", async () => {
@@ -90,7 +94,7 @@ describe("Marketplace", function () {
       await marketplace.connect(acc1).buyItem(FIRST_TOKEN_ID);
       await expect(
         marketplace.connect(acc1).buyItem(FIRST_TOKEN_ID)
-      ).to.be.revertedWith("Cannot buy non sold item");
+      ).to.be.revertedWith("Non sold item");
 
       marketplace
         .sellOrderList(FIRST_TOKEN_ID)
@@ -103,7 +107,6 @@ describe("Marketplace", function () {
     });
   });
 
-  // TODO: check whether change branch in coverage if delete this test
   describe("Set address for tokens", () => {
     it("Should fail if not admin try to set address of tokens", async () => {
       await expect(
@@ -129,6 +132,13 @@ describe("Marketplace", function () {
           expect(order.status).to.equal(OWNERED_STATUS);
         })
         .catch(console.error);
+
+      expect(await erc721Token.ownerOf(FIRST_TOKEN_ID)).to.equal(owner.address);
+
+      // If owner closed sell and then list token again
+      await erc721Token.approve(marketplace.address, FIRST_TOKEN_ID);
+      await marketplace.listItem(FIRST_TOKEN_ID, FIRST_ORDER_PRICE);
+      await marketplace.cancel(FIRST_TOKEN_ID);
     });
 
     it("Should fail cancel sell if not owner try to cancel", async () => {
@@ -170,7 +180,7 @@ describe("Marketplace", function () {
           FIRST_TOKEN_ID,
           MIN_PRICE_OF_FIRST_AUCTION
         )
-      ).to.be.revertedWith("Auction with this token is alredy started");
+      ).to.be.revertedWith("Auction is alredy started");
     });
   });
 
@@ -217,7 +227,7 @@ describe("Marketplace", function () {
         marketplace
           .connect(acc1)
           .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1)
-      ).to.be.revertedWith("Nonexistent auction");
+      ).to.be.revertedWith("Auction is not started");
     });
 
     it("Should fail if auction is finished", async () => {
@@ -237,7 +247,7 @@ describe("Marketplace", function () {
         marketplace
           .connect(acc1)
           .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 1)
-      ).to.be.revertedWith("Nonexistent auction");
+      ).to.be.revertedWith("Auction is over");
     });
 
     it("Should fail if sender make bid less then min price", async () => {
@@ -305,6 +315,8 @@ describe("Marketplace", function () {
         MIN_PRICE_OF_FIRST_AUCTION,
         FIRST_TOKEN_ID
       );
+
+      // Two bidders make bid
       await erc20Token.mint(acc1.address, 1000);
       await erc20Token.mint(acc2.address, 1000);
       await erc20Token.connect(acc1).approve(marketplace.address, 1000);
@@ -341,8 +353,70 @@ describe("Marketplace", function () {
 
     it("Should fail if auction is not started", async () => {
       await expect(marketplace.finishAution(FIRST_TOKEN_ID)).to.be.revertedWith(
-        "Nonexistent auction"
+        "Auction is not started"
       );
+    });
+  });
+
+  describe("Cancel auction", () => {
+    it("Should cancel auciton", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+
+      await erc20Token.mint(acc1.address, 1000);
+      await erc20Token.mint(acc2.address, 1000);
+      await erc20Token.connect(acc1).approve(marketplace.address, 1000);
+      await erc20Token.connect(acc2).approve(marketplace.address, 1000);
+
+      await marketplace
+        .connect(acc1)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 10);
+
+      await marketplace
+        .connect(acc2)
+        .makeBid(FIRST_TOKEN_ID, MIN_PRICE_OF_FIRST_AUCTION + 20);
+
+      await marketplace.cancelAuction(FIRST_TOKEN_ID);
+    });
+
+    it("Should fail if auciton is alredy finished", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+
+      await network.provider.send("evm_increaseTime", [3 * 24 * 3600 + 5]);
+      await network.provider.send("evm_mine");
+
+      await marketplace.finishAution(FIRST_TOKEN_ID);
+
+      await expect(
+        marketplace.cancelAuction(FIRST_TOKEN_ID)
+      ).to.be.revertedWith("Auction is over");
+    });
+
+    it("Should cancel auciton if at least one bidder made bid", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+      await marketplace.cancelAuction(FIRST_TOKEN_ID);
+    });
+
+    it("Should fail if not creator try to cancel auciton", async () => {
+      await listItemOnAuction(
+        owner.address,
+        MIN_PRICE_OF_FIRST_AUCTION,
+        FIRST_TOKEN_ID
+      );
+      await expect(
+        marketplace.connect(acc1).cancelAuction(FIRST_TOKEN_ID)
+      ).to.be.revertedWith("Not auction owner");
     });
   });
 });
