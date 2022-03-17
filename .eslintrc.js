@@ -27,5 +27,13 @@ module.exports = {
         tryExtensions: [".js", ".json", ".node", ".ts"],
       },
     ],
+    "node/no-unpublished-import": [
+      "error",
+      {
+        allowModules: ["hardhat/config"],
+        convertPath: null,
+        tryExtensions: [".js", ".json", ".node"],
+      },
+    ],
   },
 };
