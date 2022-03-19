@@ -7,7 +7,8 @@ import "@openzeppelin/contracts/access/AccessControl.sol";
 import "./ERC721Token.sol";
 import "./ERC20.sol";
 
-contract Marketplace is AccessControl{
+/** @title  */
+contract Marketplace is AccessControl {
     enum SellItemStatus {
         OWNERED,
         IN_SELL
@@ -68,6 +69,11 @@ contract Marketplace is AccessControl{
         _setupRole(DEFAULT_ADMIN_ROLE, msg.sender);
     }
 
+    /**
+        @dev Sets tokens addressess
+        @param erc721Addr Address of ERC721 token
+        @param erc20Addr Address of ERC20 token
+     */
     function setTokensAddresses(address erc721Addr, address erc20Addr) public {
         require(
             hasRole(DEFAULT_ADMIN_ROLE, msg.sender),
@@ -77,11 +83,30 @@ contract Marketplace is AccessControl{
         ERC20_TOKEN = erc20Addr;
     }
 
+    /**
+        @notice Creates ERC721 token for owner
+        @dev Token is stored on the owner's wallet after creating a token 
+        @param metadata Metadata of ERC721 token
+        @param owner Owner of creating token
+     */
     function createItem(string memory metadata, address owner) public {
         _ids.increment();
         ERC721Token(ERC721_TOKEN).mint(_ids.current(), owner, metadata);
     }
 
+    /**
+        @notice Offers for sale token
+
+        @dev Owner of token needs to approve the marketplace to transfer token with tokenId.
+            When this function is called, marketplace becomes the owner of the token with tokenId. 
+            Therefore it's impossible to offer the same token for sale 
+
+            Order is created for every token with IN_SELL status in 'sellOrderList'.
+            If order has the 'IN_SELL' status it means that token is put up for sale.
+
+        @param tokenId Token's id
+        @param price Selling price
+     */
     function listItem(uint256 tokenId, uint256 price) public {
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             msg.sender,
@@ -97,6 +122,12 @@ contract Marketplace is AccessControl{
         emit ItemListed(msg.sender, price);
     }
 
+    /**
+        @notice Buyes token which is put up for sale
+        @dev We need check token is put up for sale
+
+        @param tokenId Token's id which is put up for sale
+     */
     function buyItem(uint256 tokenId) public {
         require(
             sellOrderList[tokenId].status == SellItemStatus.IN_SELL,
@@ -179,6 +210,14 @@ contract Marketplace is AccessControl{
         emit BidMaked(msg.sender, tokenId, price);
     }
 
+    /**
+        @notice Sends ERC721 and ERC20 tokens to the addresses.
+        @dev This function is usualy called after finishing or closing auction.  
+        @param erc721Receiver Address that receives ERC721 token.
+        @param erc721TokenId Token id which is set to auction.
+        @param erc721Receiver ERC20 tokens receiver.
+        @param erc20TokenAmount Amount of ERC20 tokens.
+     */
     function sendTokensAfterFinishAuction(
         address erc721Receiver,
         uint256 erc721TokenId,
