@@ -3,45 +3,65 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/access/AccessControl.sol";
+import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
 import "./ERC721Token.sol";
 import "./ERC20.sol";
 
 /** @title  */
 contract Marketplace is AccessControl {
-    enum SellItemStatus {
-        OWNERED,
-        IN_SELL
-    }
+    // enum SellItemStatus {
+    //     OWNED,
+    //     IN_SELL
+    // }
 
-    enum AuctionStatus {
-        IS_NOT_ON_AUCTION,
+    // enum AuctionStatus {
+    //     IS_NOT_ON_AUCTION,
+    //     STARTED,
+    //     FINISHED,
+    //     CANCELED
+    // }
+
+    // struct SellOrderItem {
+    //     uint256 price; // price
+    //     address seller; // creator
+    //     SellItemStatus status; // status
+    // }
+
+    // struct AuctionItem {
+    //     uint256 bidderCounter;
+    //     uint256 higherBid;
+    //     uint256 startTimestamp;
+    //     address auctionCreator;
+    //     address higherBidder;
+    //     AuctionStatus status;
+    // }
+
+    enum OrderStatus {
+        UNDEFINED,
+        OWNED,
+        IN_SELL,
         STARTED,
         FINISHED,
         CANCELED
     }
 
-    struct SellOrderItem {
-        address seller;
-        uint256 price;
-        SellItemStatus status;
-    }
-
-    struct AuctionItem {
+    struct Order {
         uint256 bidderCounter;
-        address auctionCreator;
-        uint256 higherBid;
+        uint256 currentPrice; // price
+        uint256 auctionStartTime;
+        address creator; // creator
         address higherBidder;
-        uint256 startTimestamp;
-        AuctionStatus status;
+        AuctionStatus status; // Status
     }
 
     address public ERC721_TOKEN;
     address public ERC20_TOKEN;
     using Counters for Counters.Counter;
     Counters.Counter private _ids;
-    mapping(uint256 => SellOrderItem) public sellOrderList;
-    mapping(uint256 => AuctionItem) public auctionOrderList;
+    // mapping(uint256 => SellOrderItem) public sellOrderList;
+    // mapping(uint256 => AuctionItem) public auctionOrderList;
+    mapping(uint256 => Order) public orders;
     uint256 private constant AUCTION_DURING = 3 days;
 
     event ItemListed(address indexed seller, uint256 price);
@@ -113,10 +133,10 @@ contract Marketplace is AccessControl {
             address(this),
             tokenId
         );
-        sellOrderList[tokenId] = SellOrderItem({
-            seller: msg.sender,
-            price: price,
-            status: SellItemStatus.IN_SELL
+        sellOrderList[tokenId] = Order({
+            creator: msg.sender,
+            currentPrice: price,
+            status: OrderStatus.IN_SELL
         });
 
         emit ItemListed(msg.sender, price);
@@ -129,10 +149,7 @@ contract Marketplace is AccessControl {
         @param tokenId Token's id which is put up for sale
      */
     function buyItem(uint256 tokenId) public {
-        require(
-            sellOrderList[tokenId].status == SellItemStatus.IN_SELL,
-            "Non sold item"
-        );
+        require(orders[tokenId].status == OrderStatus.IN_SELL, "Non sold item");
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             address(this),
             msg.sender,
@@ -145,7 +162,7 @@ contract Marketplace is AccessControl {
         );
 
         sellOrderList[tokenId].seller = msg.sender;
-        sellOrderList[tokenId].status = SellItemStatus.OWNERED;
+        sellOrderList[tokenId].status = SellItemStatus.OWNED;
 
         emit ItemSold(msg.sender, sellOrderList[tokenId].price);
     }
@@ -157,7 +174,7 @@ contract Marketplace is AccessControl {
             sellOrderList[tokenId].seller,
             tokenId
         );
-        sellOrderList[tokenId].status = SellItemStatus.OWNERED;
+        sellOrderList[tokenId].status = SellItemStatus.OWNED;
         emit SaleCanceled(msg.sender, tokenId);
     }
 
