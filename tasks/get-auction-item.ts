@@ -11,6 +11,6 @@ task("getAuctionById", "Get info about auction")
       config.MARKETPLACE_ADDRESS
     );
 
-    const auction = await marketplace.auctionOrderList(+id);
+    const auction = await marketplace.orders(+id);
     console.log("Auciton: ", auction);
   });

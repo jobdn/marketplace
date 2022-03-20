@@ -20,7 +20,7 @@ describe("Marketplace", function () {
     acc3: SignerWithAddress;
   const FIRST_TOKEN_ID = 1;
   const FIRST_ORDER_PRICE = 10;
-  const OWNERED_STATUS = 0;
+  const OWNED_STATUS = 1;
   const MIN_PRICE_OF_FIRST_AUCTION = 100;
 
   beforeEach(async () => {
@@ -58,7 +58,7 @@ describe("Marketplace", function () {
   };
 
   describe("Create, list and buy item", () => {
-    const IN_SELL_STATUS = 1;
+    const IN_SELL_STATUS = 2;
 
     it("Should create item", async () => {
       await createItem(owner.address, 1);
@@ -70,10 +70,10 @@ describe("Marketplace", function () {
       await erc721Token.approve(marketplace.address, FIRST_TOKEN_ID);
       await marketplace.listItem(FIRST_TOKEN_ID, FIRST_ORDER_PRICE);
       marketplace
-        .sellOrderList(FIRST_TOKEN_ID)
+        .orders(FIRST_TOKEN_ID)
         .then((order) => {
-          expect(order.seller).to.equal(owner.address);
-          expect(order.price).to.equal(FIRST_ORDER_PRICE);
+          expect(order.creator).to.equal(owner.address);
+          expect(order.currentPrice).to.equal(FIRST_ORDER_PRICE);
           expect(order.status).to.equal(IN_SELL_STATUS);
         })
         .catch(console.error);
@@ -97,11 +97,12 @@ describe("Marketplace", function () {
       ).to.be.revertedWith("Non sold item");
 
       marketplace
-        .sellOrderList(FIRST_TOKEN_ID)
+        .orders(FIRST_TOKEN_ID)
         .then((order) => {
-          expect(order.seller).to.equal(acc1.address);
-          expect(order.price).to.equal(FIRST_ORDER_PRICE);
-          expect(order.status).to.equal(OWNERED_STATUS);
+          expect(order.creator).to.equal(acc1.address);
+          expect(order.currentPrice).to.equal(FIRST_ORDER_PRICE);
+          expect(order.status).to.equal(OWNED_STATUS);
+          1;
         })
         .catch(console.error);
     });
@@ -125,11 +126,12 @@ describe("Marketplace", function () {
       await marketplace.cancel(FIRST_TOKEN_ID);
 
       marketplace
-        .sellOrderList(FIRST_TOKEN_ID)
+        .orders(FIRST_TOKEN_ID)
         .then((order) => {
-          expect(order.seller).to.equal(owner.address);
-          expect(order.price).to.equal(FIRST_ORDER_PRICE);
-          expect(order.status).to.equal(OWNERED_STATUS);
+          expect(order.creator).to.equal(owner.address);
+          expect(order.currentPrice).to.equal(FIRST_ORDER_PRICE);
+          expect(order.status).to.equal(OWNED_STATUS);
+          1;
         })
         .catch(console.error);
 
@@ -145,7 +147,7 @@ describe("Marketplace", function () {
       await createItem(owner.address, 1);
       await expect(
         marketplace.connect(acc1).cancel(FIRST_TOKEN_ID)
-      ).to.be.revertedWith("Not seller");
+      ).to.be.revertedWith("Not creator");
     });
   });
 
@@ -211,11 +213,11 @@ describe("Marketplace", function () {
       );
 
       marketplace
-        .auctionOrderList(FIRST_TOKEN_ID)
+        .orders(FIRST_TOKEN_ID)
         .then((auction) => {
           expect(auction.bidderCounter).to.equal(2);
           expect(auction.higherBidder).to.equal(acc1.address);
-          expect(auction.higherBid).to.equal(MIN_PRICE_OF_FIRST_AUCTION + 2);
+          expect(auction.currentPrice).to.equal(MIN_PRICE_OF_FIRST_AUCTION + 2);
         })
         .catch(console.log);
     });
@@ -391,6 +393,10 @@ describe("Marketplace", function () {
       await expect(
         marketplace.cancelAuction(FIRST_TOKEN_ID)
       ).to.be.revertedWith("Auction is over");
+
+      marketplace.orders(FIRST_TOKEN_ID).then((order) => {
+        expect(order.status).to.equal(3);
+      });
     });
 
     it("Should cancel auciton if at least one bidder made bid", async () => {
