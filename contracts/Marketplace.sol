@@ -8,59 +8,29 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "./ERC721Token.sol";
 import "./ERC20.sol";
 
-/** @title  */
-contract Marketplace is AccessControl {
-    // enum SellItemStatus {
-    //     OWNED,
-    //     IN_SELL
-    // }
-
-    // enum AuctionStatus {
-    //     IS_NOT_ON_AUCTION,
-    //     STARTED,
-    //     FINISHED,
-    //     CANCELED
-    // }
-
-    // struct SellOrderItem {
-    //     uint256 price; // price
-    //     address seller; // creator
-    //     SellItemStatus status; // status
-    // }
-
-    // struct AuctionItem {
-    //     uint256 bidderCounter;
-    //     uint256 higherBid;
-    //     uint256 startTimestamp;
-    //     address auctionCreator;
-    //     address higherBidder;
-    //     AuctionStatus status;
-    // }
-
+contract Marketplace is AccessControl, ReentrancyGuard {
     enum OrderStatus {
         UNDEFINED,
         OWNED,
         IN_SELL,
-        STARTED,
-        FINISHED,
-        CANCELED
+        AUCTION_IS_STARTED,
+        AUCTION_IS_FINISHED,
+        AUCTION_IS_CANCELED
     }
 
     struct Order {
         uint256 bidderCounter;
-        uint256 currentPrice; // price
+        uint256 currentPrice;
         uint256 auctionStartTime;
-        address creator; // creator
+        address creator;
         address higherBidder;
-        AuctionStatus status; // Status
+        OrderStatus status;
     }
 
     address public ERC721_TOKEN;
     address public ERC20_TOKEN;
     using Counters for Counters.Counter;
     Counters.Counter private _ids;
-    // mapping(uint256 => SellOrderItem) public sellOrderList;
-    // mapping(uint256 => AuctionItem) public auctionOrderList;
     mapping(uint256 => Order) public orders;
     uint256 private constant AUCTION_DURING = 3 days;
 
@@ -109,7 +79,10 @@ contract Marketplace is AccessControl {
         @param metadata Metadata of ERC721 token
         @param owner Owner of creating token
      */
-    function createItem(string memory metadata, address owner) public {
+    function createItem(string memory metadata, address owner)
+        public
+        nonReentrant
+    {
         _ids.increment();
         ERC721Token(ERC721_TOKEN).mint(_ids.current(), owner, metadata);
     }
@@ -121,21 +94,24 @@ contract Marketplace is AccessControl {
             When this function is called, marketplace becomes the owner of the token with tokenId. 
             Therefore it's impossible to offer the same token for sale 
 
-            Order is created for every token with IN_SELL status in 'sellOrderList'.
+            Order is created for every token with IN_SELL status in 'orders'.
             If order has the 'IN_SELL' status it means that token is put up for sale.
 
         @param tokenId Token's id
         @param price Selling price
      */
-    function listItem(uint256 tokenId, uint256 price) public {
+    function listItem(uint256 tokenId, uint256 price) public nonReentrant {
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             msg.sender,
             address(this),
             tokenId
         );
-        sellOrderList[tokenId] = Order({
-            creator: msg.sender,
+        orders[tokenId] = Order({
+            bidderCounter: 0,
             currentPrice: price,
+            auctionStartTime: block.timestamp,
+            creator: msg.sender,
+            higherBidder: msg.sender,
             status: OrderStatus.IN_SELL
         });
 
@@ -148,7 +124,7 @@ contract Marketplace is AccessControl {
 
         @param tokenId Token's id which is put up for sale
      */
-    function buyItem(uint256 tokenId) public {
+    function buyItem(uint256 tokenId) public nonReentrant {
         require(orders[tokenId].status == OrderStatus.IN_SELL, "Non sold item");
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             address(this),
@@ -157,30 +133,33 @@ contract Marketplace is AccessControl {
         );
         ERC20(ERC20_TOKEN).transferFrom(
             msg.sender,
-            sellOrderList[tokenId].seller,
-            sellOrderList[tokenId].price
+            orders[tokenId].creator,
+            orders[tokenId].currentPrice
         );
 
-        sellOrderList[tokenId].seller = msg.sender;
-        sellOrderList[tokenId].status = SellItemStatus.OWNED;
+        orders[tokenId].creator = msg.sender;
+        orders[tokenId].status = OrderStatus.OWNED;
 
-        emit ItemSold(msg.sender, sellOrderList[tokenId].price);
+        emit ItemSold(msg.sender, orders[tokenId].currentPrice);
     }
 
-    function cancel(uint256 tokenId) public {
-        require(msg.sender == sellOrderList[tokenId].seller, "Not seller");
+    function cancel(uint256 tokenId) public nonReentrant {
+        require(msg.sender == orders[tokenId].creator, "Not creator");
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
             address(this),
-            sellOrderList[tokenId].seller,
+            orders[tokenId].creator,
             tokenId
         );
-        sellOrderList[tokenId].status = SellItemStatus.OWNED;
+        orders[tokenId].status = OrderStatus.OWNED;
         emit SaleCanceled(msg.sender, tokenId);
     }
 
-    function listItemOnAuction(uint256 tokenId, uint256 minPrice) public {
+    function listItemOnAuction(uint256 tokenId, uint256 minPrice)
+        public
+        nonReentrant
+    {
         require(
-            auctionOrderList[tokenId].status != AuctionStatus.STARTED,
+            orders[tokenId].status != OrderStatus.AUCTION_IS_STARTED,
             "Auction is already started"
         );
         ERC721Token(ERC721_TOKEN).safeTransferFrom(
@@ -188,41 +167,41 @@ contract Marketplace is AccessControl {
             address(this),
             tokenId
         );
-        auctionOrderList[tokenId] = AuctionItem({
+        orders[tokenId] = Order({
             bidderCounter: 0,
-            auctionCreator: msg.sender,
-            higherBid: minPrice,
+            creator: msg.sender,
+            currentPrice: minPrice,
             higherBidder: address(0),
-            startTimestamp: block.timestamp,
-            status: AuctionStatus.STARTED
+            auctionStartTime: block.timestamp,
+            status: OrderStatus.AUCTION_IS_STARTED
         });
 
         emit AuctionStarted(msg.sender, tokenId, minPrice);
     }
 
-    function makeBid(uint256 tokenId, uint256 price) public {
+    function makeBid(uint256 tokenId, uint256 price) public nonReentrant {
         require(
-            auctionOrderList[tokenId].status == AuctionStatus.STARTED,
+            orders[tokenId].status == OrderStatus.AUCTION_IS_STARTED,
             "Auction is not started"
         );
         require(
             block.timestamp <=
-                auctionOrderList[tokenId].startTimestamp + AUCTION_DURING,
+                orders[tokenId].auctionStartTime + AUCTION_DURING,
             "Auction is over"
         );
-        require(price > auctionOrderList[tokenId].higherBid, "Not enough bid");
+        require(price > orders[tokenId].currentPrice, "Not enough bid");
 
-        address preHigherBidder = auctionOrderList[tokenId].higherBidder;
-        uint256 preHigherBid = auctionOrderList[tokenId].higherBid;
+        address prevHigherBidder = orders[tokenId].higherBidder;
+        uint256 prevHigherBid = orders[tokenId].currentPrice;
         ERC20(ERC20_TOKEN).transferFrom(msg.sender, address(this), price);
-        auctionOrderList[tokenId].higherBid = price;
-        auctionOrderList[tokenId].higherBidder = msg.sender;
+        orders[tokenId].currentPrice = price;
+        orders[tokenId].higherBidder = msg.sender;
 
-        if (auctionOrderList[tokenId].bidderCounter > 0) {
-            ERC20(ERC20_TOKEN).transfer(preHigherBidder, preHigherBid);
+        if (orders[tokenId].bidderCounter > 0) {
+            ERC20(ERC20_TOKEN).transfer(prevHigherBidder, prevHigherBid);
         }
 
-        auctionOrderList[tokenId].bidderCounter++;
+        orders[tokenId].bidderCounter++;
 
         emit BidMaked(msg.sender, tokenId, price);
     }
@@ -249,78 +228,73 @@ contract Marketplace is AccessControl {
         ERC20(ERC20_TOKEN).transfer(erc20Receiver, erc20TokenAmount);
     }
 
-    function finishAution(uint256 tokenId) public {
+    function finishAution(uint256 tokenId) public nonReentrant {
         require(
             block.timestamp >=
-                auctionOrderList[tokenId].startTimestamp + AUCTION_DURING,
+                orders[tokenId].auctionStartTime + AUCTION_DURING,
             "Auction is not over"
         );
 
-        if (auctionOrderList[tokenId].bidderCounter > 2) {
-            address auctionWinner = auctionOrderList[tokenId].higherBidder;
+        if (orders[tokenId].bidderCounter > 2) {
+            address auctionWinner = orders[tokenId].higherBidder;
             uint256 erc721TokenToWinner = tokenId;
-            uint256 erc20ToActionCreator = auctionOrderList[tokenId].higherBid;
+            uint256 erc20ToActionCreator = orders[tokenId].currentPrice;
 
             sendTokensAfterFinishAuction(
                 auctionWinner,
                 erc721TokenToWinner,
-                auctionOrderList[tokenId].auctionCreator,
+                orders[tokenId].creator,
                 erc20ToActionCreator
             );
-        } else if (auctionOrderList[tokenId].bidderCounter == 0) {
+        } else if (orders[tokenId].bidderCounter == 0) {
             ERC721Token(ERC721_TOKEN).safeTransferFrom(
                 address(this),
-                auctionOrderList[tokenId].auctionCreator,
+                orders[tokenId].creator,
                 tokenId
             );
         } else {
-            address lastBidder = auctionOrderList[tokenId].higherBidder;
-            uint256 erc20TokenOfLastBidder = auctionOrderList[tokenId]
-                .higherBid;
+            address lastBidder = orders[tokenId].higherBidder;
+            uint256 erc20TokenOfLastBidder = orders[tokenId].currentPrice;
 
             sendTokensAfterFinishAuction(
-                auctionOrderList[tokenId].auctionCreator,
+                orders[tokenId].creator,
                 tokenId,
                 lastBidder,
                 erc20TokenOfLastBidder
             );
         }
 
-        auctionOrderList[tokenId].status = AuctionStatus.FINISHED;
+        orders[tokenId].status = OrderStatus.AUCTION_IS_FINISHED;
 
         emit AuctionFinished(
             msg.sender,
-            auctionOrderList[tokenId].auctionCreator,
-            auctionOrderList[tokenId].higherBidder,
+            orders[tokenId].creator,
+            orders[tokenId].higherBidder,
             tokenId
         );
     }
 
     function cancelAuction(uint256 tokenId) public {
-        require(
-            msg.sender == auctionOrderList[tokenId].auctionCreator,
-            "Not auction owner"
-        );
+        require(msg.sender == orders[tokenId].creator, "Not auction owner");
 
         require(
-            auctionOrderList[tokenId].status != AuctionStatus.FINISHED,
+            orders[tokenId].status != OrderStatus.AUCTION_IS_FINISHED,
             "Auction is over"
         );
 
-        if (auctionOrderList[tokenId].bidderCounter > 0) {
-            address lastBidder = auctionOrderList[tokenId].higherBidder;
-            uint256 erc20TokenOfLastBidder = auctionOrderList[tokenId]
-                .higherBid;
+        if (orders[tokenId].bidderCounter > 0) {
+            address lastBidder = orders[tokenId].higherBidder;
+            uint256 erc20TokenOfLastBidder = orders[tokenId].currentPrice;
 
             sendTokensAfterFinishAuction(
-                auctionOrderList[tokenId].auctionCreator,
+                orders[tokenId].creator,
                 tokenId,
                 lastBidder,
                 erc20TokenOfLastBidder
             );
         }
 
-        auctionOrderList[tokenId].status = AuctionStatus.CANCELED;
+        orders[tokenId].status = OrderStatus.AUCTION_IS_CANCELED;
         emit AuctionClosed(msg.sender, tokenId, block.timestamp);
     }
 
